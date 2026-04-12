@@ -1,0 +1,10 @@
+/pkg/
+/tmp/
+/.bundle/
+/Gemfile.lock
+/vendor/bundle/
+/python/.venv/
+/python/uv.lock
+/python/__pycache__/
+*.gem
+.DS_Store

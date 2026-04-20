@@ -20,6 +20,11 @@ VENDOR_SOURCES = {
     sha256: "de32f8e147ee8f969599a00b7145e8561b943e916b0132b811037f8f71952a0e",
     filename: "libcatboostmodel.so"
   },
+  "aarch64-linux" => {
+    url: "https://github.com/catboost/catboost/releases/download/v#{LIB_VERSION}/libcatboostmodel-linux-aarch64-#{LIB_VERSION}.so",
+    sha256: "d1b5d12f57ef72fd43505d9fbc1ea30d93d54ef0f305484c6bbfde8642e99a5b",
+    filename: "libcatboostmodel.so"
+  },
   "arm64-darwin"  => DARWIN_UNIVERSAL2,
   "x86_64-darwin" => DARWIN_UNIVERSAL2
 }.freeze

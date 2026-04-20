@@ -17,11 +17,19 @@ module CatBoost
     end
 
     suffix = FFI::Platform::LIBSUFFIX
+    local = Gem::Platform.local
+    platform_dir = "#{local.cpu}-#{local.os}"
+    candidate = File.expand_path("../vendor/#{platform_dir}/libcatboostmodel.#{suffix}", __dir__)
+    return candidate if File.file?(candidate)
+
+    # Thin platform-specific gems ship with exactly one vendor subdir; if the
+    # arch-specific lookup above misses (unusual platform naming, hand-built
+    # vendor tree) and there's exactly one candidate, fall back to it.
     candidates = Dir[File.expand_path("../vendor/*/libcatboostmodel.#{suffix}", __dir__)]
-    return candidates.first if candidates.any?
+    return candidates.first if candidates.size == 1
 
     raise LibraryNotFound, <<~MSG
-      Could not locate libcatboostmodel.#{suffix} under #{File.expand_path("../vendor", __dir__)}.
+      Could not locate libcatboostmodel.#{suffix} for platform #{platform_dir} under #{File.expand_path("../vendor", __dir__)}.
       Run `just setup` (or `bundle exec rake vendor:fetch`) to download the pinned
       release artifact, or set CATBOOST_LIB_PATH to override with your own build.
     MSG

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`catboost-inference` is a minimal Ruby FFI gem for CatBoost model inference (applier only — no training). It wraps `libcatboostmodel` v1.2.10 via the `ffi` gem. Ships as three platform-specific gems: `x86_64-linux`, `arm64-darwin`, and `x86_64-darwin`. The macOS gems share the same universal2 `.dylib` (one file, both archs) but are published as separate gems so Bundler's platform matcher picks the right one cleanly.
+`catboost-inference` is a minimal Ruby FFI gem for CatBoost model inference (applier only — no training). It wraps `libcatboostmodel` v1.2.10 via the `ffi` gem. Ships as four platform-specific gems: `x86_64-linux`, `aarch64-linux`, `arm64-darwin`, and `x86_64-darwin`. The macOS gems share the same universal2 `.dylib` (one file, both archs) but are published as separate gems so Bundler's platform matcher picks the right one cleanly.
 
 ## Commands
 
@@ -15,7 +15,7 @@ just test test/model_test.rb        # run one file (detected as a path)
 just test predict_proba             # run tests matching a name pattern
 just fixtures                       # regenerate Python-produced test fixtures (+ iris.cbshap sidecar)
 just build                          # build one gem for the current host platform
-just build-all                      # build all three platform gems (linux + 2× darwin)
+just build-all                      # build all four platform gems (2× linux + 2× darwin)
 just publish                        # clean + build-all + push every gem to Cassette (needs CASSETTE_API_KEY)
 just console                        # IRB with `require "catboost"` loaded
 ```
@@ -28,7 +28,7 @@ Without `just`: `bundle exec rake test`, `bundle exec ruby -Ilib -Itest test/fil
 
 **Six modules, each with one job:**
 
-- `CatBoost` (lib/catboost.rb) — Error classes, library path resolution. At load time it globs `vendor/*/libcatboostmodel.#{FFI::Platform::LIBSUFFIX}` — each platform-specific gem contains exactly one binary, so the glob returns a single match with no platform detection needed.
+- `CatBoost` (lib/catboost.rb) — Error classes, library path resolution. At load time it resolves `vendor/#{Gem::Platform.local.cpu}-#{Gem::Platform.local.os}/libcatboostmodel.#{FFI::Platform::LIBSUFFIX}` directly. This matters on the fat gem (or in the dev repo), where multiple vendor subdirs share the same LIBSUFFIX (e.g. `aarch64-linux` and `x86_64-linux` both use `.so`) and a simple glob would pick the wrong one. Falls back to a glob if there's exactly one candidate (thin-gem safety net); raises `LibraryNotFound` otherwise.
 - `CatBoost::LibFFI` (lib/catboost/ffi.rb) — Raw `attach_function` declarations binding 20 C API functions; `check!` helper reads thread-local `GetErrorString()` immediately on failure
 - `CatBoost::LibC` (lib/catboost/ffi.rb) — Separate FFI module binding libc `free()` for cleanup of C API malloc'd output arrays
 - `CatBoost::FeatureSchema` (lib/catboost/feature_schema.rb) — Translates `{name => value}` Hashes into the C API's positional `[float_array, cat_array]` layout; built once per Model at load time
@@ -68,13 +68,13 @@ There are also Python-native tests in `python/test_cbshap.py` (`uv run pytest`) 
 
 ## Gem build strategy (dual: fat + thin)
 
-The gemspec is **platform-agnostic** — `spec.platform` defaults to `Gem::Platform::RUBY` and `spec.files` includes every committed vendor subdirectory. `gem build catboost-inference.gemspec` (or `just build`) produces a single fat `catboost-inference-VERSION.gem` (~16 MB) containing all three platforms' binaries. This is what `git:` source consumers get — Bundler can resolve one RUBY-platform gem against any `Gemfile.lock` `PLATFORMS` list.
+The gemspec is **platform-agnostic** — `spec.platform` defaults to `Gem::Platform::RUBY` and `spec.files` includes every committed vendor subdirectory. `gem build catboost-inference.gemspec` (or `just build`) produces a single fat `catboost-inference-VERSION.gem` (~28 MB) containing all four platforms' binaries. This is what `git:` source consumers get — Bundler can resolve one RUBY-platform gem against any `Gemfile.lock` `PLATFORMS` list.
 
-`rake build:all` (via `just build-all`) produces three thin platform-tagged gems in-process using the idiomatic `Gem::Specification.load.dup` + `Gem::Package.build` pattern (see `rake-compiler`'s `Rake::ExtensionTask#define_native_tasks` and `libusb`/`google-protobuf`/`wasmtime-rb` Rakefiles). Each task loads the gemspec, duplicates it, retags the platform, and prunes `spec.files` down to one platform's binary. These thin gems are what `just publish` pushes to Cassette — consumers downloading from the registry get a ~3–6 MB gem with only their own binary.
+`rake build:all` (via `just build-all`) produces four thin platform-tagged gems in-process using the idiomatic `Gem::Specification.load.dup` + `Gem::Package.build` pattern (see `rake-compiler`'s `Rake::ExtensionTask#define_native_tasks` and `libusb`/`google-protobuf`/`wasmtime-rb` Rakefiles). Each task loads the gemspec, duplicates it, retags the platform, and prunes `spec.files` down to one platform's binary. These thin gems are what `just publish` pushes to Cassette — consumers downloading from the registry get a ~3–6 MB gem with only their own binary.
 
 Both paths use the same runtime `Dir.glob` in `lib/catboost.rb` to locate the shared library, so fat and thin gems are behaviorally identical after install. No `Bundler.with_unbundled_env` or subshell gymnastics in the Rakefile — `Gem::Package.build` runs in-process.
 
-To upgrade: bump `LIBCATBOOSTMODEL_VERSION` in `lib/catboost/version.rb`, update both SHA-256 entries in `Rakefile` (linux .so + darwin universal2 .dylib), run `rake vendor:fetch_all`. The Linux `.so` requires only glibc 2.14+ (no libstdc++, no OpenMP, no CUDA) — does not work on Alpine without `apk add gcompat`. The darwin dylib is a Mach-O universal2 containing both `x86_64` and `arm64` slices.
+To upgrade: bump `LIBCATBOOSTMODEL_VERSION` in `lib/catboost/version.rb`, update all three SHA-256 entries in `Rakefile` (linux x86_64 .so + linux aarch64 .so + darwin universal2 .dylib), run `rake vendor:fetch_all`. The Linux `.so`s require only glibc (2.14+ for x86_64, 2.17+ for aarch64; no libstdc++, no OpenMP, no CUDA) — do not work on Alpine without `apk add gcompat`. The darwin dylib is a Mach-O universal2 containing both `x86_64` and `arm64` slices.
 
 ## Thread safety
 

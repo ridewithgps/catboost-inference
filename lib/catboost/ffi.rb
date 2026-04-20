@@ -68,12 +68,26 @@ module CatBoost
     end
   end
 
-  # libc binding lives in its own module so the ffi_lib declaration does not
-  # interfere with LibFFI's ordering. Used to free malloc'd memory returned
-  # by GetModelUsedFeaturesNames and the feature-index getters.
+  # Used to free malloc'd memory returned by GetModelUsedFeaturesNames and
+  # the feature-index getters. Bound against a null-handle library
+  # (RTLD_DEFAULT) rather than libc.so.6 so the symbol resolves through the
+  # process's own loader order. On Rubies built --with-jemalloc (RVM's
+  # default), jemalloc interposes malloc/free globally and libcatboostmodel
+  # ends up allocating through it — pinning this to glibc's free would then
+  # hand jemalloc-owned chunks to glibc and abort with "free(): invalid
+  # pointer" on the first model load.
   module LibC
     extend ::FFI::Library
-    ffi_lib ::FFI::Library::LIBC
+    # ffi_lib takes a path string; to bind against the process's own symbol
+    # table we poke @ffi_libs directly with a null-handle DynamicLibrary
+    # (dlopen(NULL) ≈ RTLD_DEFAULT). attach_function then resolves through
+    # the same symbol table the main Ruby binary uses.
+    @ffi_libs = [
+      ::FFI::DynamicLibrary.open(
+        nil,
+        ::FFI::DynamicLibrary::RTLD_LAZY | ::FFI::DynamicLibrary::RTLD_GLOBAL
+      )
+    ]
     attach_function :free, [:pointer], :void
   end
 end
